@@ -118,11 +118,17 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-_cors_origins = os.environ.get(
+_cors_origins_raw = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173"
-)
-CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+).strip()
+
+if _cors_origins_raw == "*" or _cors_origins_raw.lower() == "true":
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins_raw.split(",") if o.strip() and o.strip() != "*"]
+
 CORS_ALLOW_CREDENTIALS = True
+
 
 # Request runner security limits
 REQUEST_RUNNER_TIMEOUT = int(os.environ.get("REQUEST_RUNNER_TIMEOUT", "10"))
