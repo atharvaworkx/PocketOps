@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from .models import CheckResult, DiagnosticEvent, Endpoint, Incident, Project
+from .models import CheckResult, DiagnosticEvent, Endpoint, Incident, ObservedRequest, Project
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -159,3 +159,58 @@ class RunRequestSerializer(serializers.Serializer):
         max_length=2000, required=False, allow_blank=True, write_only=True
     )
     json_body = serializers.JSONField(required=False, allow_null=True, default=None)
+
+
+# ── Observability ─────────────────────────────────────────────────────────────
+
+class ObservedRequestSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True, default=None)
+
+    class Meta:
+        model = ObservedRequest
+        fields = (
+            "id",
+            "request_id",
+            "correlation_id",
+            "timestamp",
+            "method",
+            "path",
+            "status_code",
+            "duration_ms",
+            "classification",
+            "user_id",
+            "user_identifier",
+            "client_ip",
+            "error_summary",
+        )
+        read_only_fields = fields
+
+
+class ObservedRequestDetailSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source="user.id", read_only=True, default=None)
+
+    class Meta:
+        model = ObservedRequest
+        fields = (
+            "id",
+            "request_id",
+            "correlation_id",
+            "timestamp",
+            "method",
+            "path",
+            "query_params",
+            "status_code",
+            "duration_ms",
+            "classification",
+            "user_id",
+            "user_identifier",
+            "client_ip",
+            "user_agent",
+            "error_summary",
+            "request_headers",
+            "request_body",
+            "response_body",
+            "exception_type",
+            "is_exception",
+        )
+        read_only_fields = fields

@@ -14,6 +14,8 @@ from .views import (
     MeView,
     ProjectListCreateView,
     ProjectRetrieveUpdateDestroyView,
+    ObservedRequestDetailView,
+    ObservedRequestListView,
     ProjectCheckView,
     RegisterView,
 
@@ -93,5 +95,17 @@ urlpatterns = [
         "projects/<uuid:project_id>/events/",
         DiagnosticEventListView.as_view(),
         name="diagnostic-event-list",
+    ),
+
+    # Observability
+    path(
+        "observability/requests/",
+        ObservedRequestListView.as_view(),
+        name="observed-request-list",
+    ),
+    path(
+        "observability/requests/<uuid:pk>/",
+        ObservedRequestDetailView.as_view(),
+        name="observed-request-detail",
     ),
 ]

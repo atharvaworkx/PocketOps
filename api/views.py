@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from .diagnostics import explain_diagnostic, normalize_category
-from .models import CheckResult, DiagnosticEvent, Endpoint, Incident, Project
+from .models import CheckResult, DiagnosticEvent, Endpoint, Incident, ObservedRequest, Project
 from .permissions import IsOwner, IsProjectOwner
 from .runner import run_request
 from .serializers import (
@@ -14,12 +14,15 @@ from .serializers import (
     DiagnosticEventSerializer,
     EndpointSerializer,
     IncidentSerializer,
+    ObservedRequestDetailSerializer,
+    ObservedRequestSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
     RegisterSerializer,
     RunRequestSerializer,
     UserSerializer,
 )
+from rest_framework.pagination import PageNumberPagination
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
@@ -390,3 +393,82 @@ class DiagnosticEventListView(generics.ListAPIView):
         return DiagnosticEvent.objects.filter(
             project__id=project_id, project__owner=self.request.user
         )
+
+
+# ── Observability ─────────────────────────────────────────────────────────────
+
+class ObservabilityPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+class ObservedRequestListView(generics.ListAPIView):
+    serializer_class = ObservedRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = ObservabilityPagination
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            qs = ObservedRequest.objects.all()
+        else:
+            qs = ObservedRequest.objects.filter(user=user)
+
+        status_code = self.request.query_params.get("status_code")
+        if status_code:
+            try:
+                qs = qs.filter(status_code=int(status_code))
+            except ValueError:
+                pass
+
+        method = self.request.query_params.get("method")
+        if method:
+            qs = qs.filter(method__iexact=method.strip())
+
+        path = self.request.query_params.get("path")
+        if path:
+            qs = qs.filter(path__icontains=path.strip())
+
+        classification = self.request.query_params.get("classification")
+        if classification:
+            qs = qs.filter(classification__iexact=classification.strip())
+
+        request_id = self.request.query_params.get("request_id")
+        if request_id:
+            qs = qs.filter(request_id__icontains=request_id.strip())
+
+        start_time = self.request.query_params.get("start_time")
+        if start_time:
+            qs = qs.filter(timestamp__gte=start_time)
+
+        end_time = self.request.query_params.get("end_time")
+        if end_time:
+            qs = qs.filter(timestamp__lte=end_time)
+
+        min_duration_ms = self.request.query_params.get("min_duration_ms")
+        if min_duration_ms:
+            try:
+                qs = qs.filter(duration_ms__gte=float(min_duration_ms))
+            except ValueError:
+                pass
+
+        max_duration_ms = self.request.query_params.get("max_duration_ms")
+        if max_duration_ms:
+            try:
+                qs = qs.filter(duration_ms__lte=float(max_duration_ms))
+            except ValueError:
+                pass
+
+        return qs
+
+
+class ObservedRequestDetailView(generics.RetrieveAPIView):
+    serializer_class = ObservedRequestDetailSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return ObservedRequest.objects.all()
+        return ObservedRequest.objects.filter(user=user)
