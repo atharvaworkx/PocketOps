@@ -50,7 +50,7 @@ class Endpoint(models.Model):
 
 class CheckResult(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    endpoint = models.ForeignKey(Endpoint, on_delete=models.CASCADE, related_name="check_results")
+    endpoint = models.ForeignKey(Endpoint, on_delete=models.SET_NULL, null=True, blank=True, related_name="check_results")
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="check_results")
     status_code = models.IntegerField(null=True, blank=True)
     duration_ms = models.FloatField(null=True, blank=True)
