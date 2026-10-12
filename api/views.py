@@ -184,7 +184,7 @@ class EndpointListCreateView(generics.ListCreateAPIView):
             duration_ms=res.get("duration_ms"),
             success=success,
             error_message=res.get("error_message") or "",
-            response_summary=(res.get("response_body") or "")[:500],
+            response_summary=(res.get("response_body") or "")[:10000],
         )
 
         if not success:
@@ -258,7 +258,7 @@ class EndpointCheckView(views.APIView):
             duration_ms=result.get("duration_ms"),
             success=success,
             error_message=result.get("error_message") or "",
-            response_summary=(result.get("response_body") or "")[:500],
+            response_summary=(result.get("response_body") or "")[:10000],
         )
 
         # Create incident if failed
@@ -308,7 +308,7 @@ class ProjectCheckView(views.APIView):
                 duration_ms=res.get("duration_ms"),
                 success=res.get("success", False),
                 error_message=res.get("error_message") or "",
-                response_summary=(res.get("response_body") or "")[:500],
+                response_summary=(res.get("response_body") or "")[:10000],
             )
             if not res.get("success"):
                 explanation = explain_diagnostic("unknown", res.get("error_message") or f"HTTP {res.get('status_code')}")
@@ -342,7 +342,7 @@ class ProjectCheckView(views.APIView):
                     duration_ms=res.get("duration_ms"),
                     success=success,
                     error_message=res.get("error_message") or "",
-                    response_summary=(res.get("response_body") or "")[:500],
+                    response_summary=(res.get("response_body") or "")[:10000],
                 )
                 if not success:
                     explanation = explain_diagnostic("unknown", res.get("error_message") or f"HTTP {res.get('status_code')}")
