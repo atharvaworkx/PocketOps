@@ -70,6 +70,14 @@ class EndpointSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "created_at", "updated_at")
 
+    def validate_path(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Path must not be empty.")
+        if not value.startswith("/"):
+            value = "/" + value
+        return value
+
     def validate_project(self, project):
         request = self.context.get("request")
         if request and project.owner != request.user:

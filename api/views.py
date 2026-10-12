@@ -105,6 +105,49 @@ class EndpointListCreateView(generics.ListCreateAPIView):
         project = Project.objects.get(id=project_id, owner=self.request.user)
         serializer.save(project=project)
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        endpoint = serializer.instance
+        project = endpoint.project
+
+        # Immediately probe the endpoint so Flutter gets instant feedback
+        full_url = project.base_url.rstrip("/") + "/" + endpoint.path.lstrip("/")
+        res = run_request(method=endpoint.method, url=full_url)
+        success = res["success"]
+        if endpoint.expected_status and res.get("status_code"):
+            success = res["status_code"] == endpoint.expected_status
+
+        check = CheckResult.objects.create(
+            endpoint=endpoint,
+            project=project,
+            status_code=res.get("status_code"),
+            duration_ms=res.get("duration_ms"),
+            success=success,
+            error_message=res.get("error_message") or "",
+            response_summary=(res.get("response_body") or "")[:500],
+        )
+
+        if not success:
+            explanation = explain_diagnostic(
+                "unknown",
+                res.get("error_message") or f"HTTP {res.get('status_code')}",
+            )
+            Incident.objects.create(
+                project=project,
+                endpoint=endpoint,
+                http_status=res.get("status_code"),
+                diagnostic_category="unknown",
+                summary=res.get("error_message") or f"HTTP {res.get('status_code')}",
+                safe_details={"error_kind": res.get("error_kind")},
+                suggested_action=explanation.suggested_action,
+            )
+
+        data = EndpointSerializer(endpoint, context={"request": request}).data
+        data["latest_check"] = CheckResultSerializer(check).data
+        return Response(data, status=status.HTTP_201_CREATED)
+
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
         return ctx
@@ -169,7 +212,7 @@ class EndpointCheckView(views.APIView):
                 suggested_action=explanation.suggested_action,
             )
 
-        return Response(CheckResultSerializer(check).data, status=status.HTTP_201_CREATED)
+        return Response(CheckResultSerializer(check).data, status=status.HTTP_200_OK)
 
 
 class ProjectCheckView(views.APIView):
