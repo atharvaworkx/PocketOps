@@ -38,6 +38,8 @@ class Endpoint(models.Model):
     method = models.CharField(max_length=10, choices=HttpMethod.choices, default=HttpMethod.GET)
     expected_status = models.IntegerField(null=True, blank=True)
     enabled = models.BooleanField(default=True)
+    bearer_token = models.CharField(max_length=2000, blank=True, default="")
+    headers = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

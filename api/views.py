@@ -1,3 +1,5 @@
+from typing import Optional, Tuple
+from urllib.parse import urlparse
 import secrets
 from django.utils import timezone
 from rest_framework import generics, permissions, status, views
@@ -8,6 +10,56 @@ from .diagnostics import explain_diagnostic, normalize_category
 from .models import CheckResult, DiagnosticEvent, Endpoint, Incident, ObservedRequest, Project
 from .permissions import IsOwner, IsProjectOwner
 from .runner import run_request
+
+
+def get_request_jwt(request) -> Optional[str]:
+    """Extract Bearer JWT token from the incoming HTTP request."""
+    if not request:
+        return None
+    auth = request.headers.get("Authorization") or request.META.get("HTTP_AUTHORIZATION", "")
+    if auth and auth.startswith("Bearer "):
+        return auth.split(" ", 1)[1].strip()
+    return None
+
+
+def resolve_request_auth(request, endpoint: Optional[Endpoint], full_url: str) -> Tuple[dict, Optional[str]]:
+    """
+    Resolves headers and bearer_token for an outbound probe.
+    1. If endpoint has custom headers, start with them.
+    2. If endpoint has an explicit bearer_token:
+        - If 'auto', 'user_jwt', 'jwt', or 'current_user': use incoming user's JWT.
+        - Otherwise, use the explicit token.
+    3. If endpoint has no token and no Authorization header:
+        - If target host matches the PocketOps host (or localhost/same domain),
+          auto-forward the logged-in user's JWT!
+    """
+    headers = dict(endpoint.headers) if (endpoint and getattr(endpoint, "headers", None) and isinstance(endpoint.headers, dict)) else {}
+    raw_token = (endpoint.bearer_token.strip() if endpoint and getattr(endpoint, "bearer_token", None) else "")
+    bearer_token = raw_token or None
+
+    user_jwt = get_request_jwt(request)
+
+    # 1. Magic keyword to explicitly use the logged-in user's JWT
+    if bearer_token and bearer_token.lower() in ("auto", "user_jwt", "jwt", "current_user"):
+        bearer_token = user_jwt
+
+    # 2. Auto-forward JWT if calling own backend / same host and no custom auth is specified
+    has_auth_header = any(k.lower() == "authorization" for k in headers.keys())
+    if not bearer_token and not has_auth_header and user_jwt and request:
+        try:
+            target_host = urlparse(full_url).hostname or ""
+            target_host = target_host.lower()
+            current_host = request.get_host().split(":")[0].lower()
+
+            is_same_host = (target_host == current_host)
+            is_local = target_host in ("localhost", "127.0.0.1") and current_host in ("localhost", "127.0.0.1")
+
+            if is_same_host or is_local:
+                bearer_token = user_jwt
+        except Exception:
+            pass
+
+    return headers, bearer_token
 from .serializers import (
     CheckResultSerializer,
     DiagnosticEventIngestSerializer,
@@ -114,7 +166,13 @@ class EndpointListCreateView(generics.ListCreateAPIView):
 
         # Immediately probe the endpoint so Flutter gets instant feedback
         full_url = project.base_url.rstrip("/") + "/" + endpoint.path.lstrip("/")
-        res = run_request(method=endpoint.method, url=full_url)
+        headers, bearer_token = resolve_request_auth(request, endpoint, full_url)
+        res = run_request(
+            method=endpoint.method,
+            url=full_url,
+            headers=headers,
+            bearer_token=bearer_token,
+        )
         success = res["success"]
         if endpoint.expected_status and res.get("status_code"):
             success = res["status_code"] == endpoint.expected_status
@@ -181,7 +239,13 @@ class EndpointCheckView(views.APIView):
 
         project = endpoint.project
         full_url = project.base_url.rstrip("/") + "/" + endpoint.path.lstrip("/")
-        result = run_request(method=endpoint.method, url=full_url)
+        headers, bearer_token = resolve_request_auth(request, endpoint, full_url)
+        result = run_request(
+            method=endpoint.method,
+            url=full_url,
+            headers=headers,
+            bearer_token=bearer_token,
+        )
 
         success = result["success"]
         if endpoint.expected_status and result.get("status_code"):
@@ -231,7 +295,13 @@ class ProjectCheckView(views.APIView):
         results = []
 
         if not endpoints.exists():
-            res = run_request(method="GET", url=project.base_url)
+            headers, bearer_token = resolve_request_auth(request, None, project.base_url)
+            res = run_request(
+                method="GET",
+                url=project.base_url,
+                headers=headers,
+                bearer_token=bearer_token,
+            )
             check = CheckResult.objects.create(
                 project=project,
                 status_code=res.get("status_code"),
@@ -254,7 +324,13 @@ class ProjectCheckView(views.APIView):
         else:
             for endpoint in endpoints:
                 full_url = project.base_url.rstrip("/") + "/" + endpoint.path.lstrip("/")
-                res = run_request(method=endpoint.method, url=full_url)
+                headers, bearer_token = resolve_request_auth(request, endpoint, full_url)
+                res = run_request(
+                    method=endpoint.method,
+                    url=full_url,
+                    headers=headers,
+                    bearer_token=bearer_token,
+                )
                 success = res["success"]
                 if endpoint.expected_status and res.get("status_code"):
                     success = res["status_code"] == endpoint.expected_status
@@ -337,11 +413,18 @@ class RunRequestView(views.APIView):
             )
 
         data = serializer.validated_data
+        headers = dict(data.get("headers", {}))
+        bearer_token = data.get("bearer_token") or None
+        if not bearer_token and not any(k.lower() == "authorization" for k in headers.keys()):
+            _h, auto_token = resolve_request_auth(request, None, data["url"])
+            if auto_token:
+                bearer_token = auto_token
+
         result = run_request(
             method=data["method"],
             url=data["url"],
-            headers=data.get("headers", {}),
-            bearer_token=data.get("bearer_token") or None,
+            headers=headers,
+            bearer_token=bearer_token,
             json_body=data.get("json_body"),
         )
         return Response(result, status=status.HTTP_200_OK)

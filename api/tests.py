@@ -328,3 +328,116 @@ class RequestRunnerApiTest(TestCase):
             format="json",
         )
         self.assertEqual(res.status_code, 400)
+
+
+# ── Auth & Headers Endpoint Tests ─────────────────────────────────────────────
+
+class EndpointAuthHeadersTest(TestCase):
+    def setUp(self):
+        self.user = make_user("authenduser", "authendpass123!")
+        self.client = auth_client(self.user)
+        self.project = make_project(self.user, "AuthProj", "https://example.com")
+
+    @patch("api.views.run_request")
+    def test_endpoint_with_custom_bearer_token(self, mock_runner):
+        mock_runner.return_value = {
+            "success": True,
+            "status_code": 200,
+            "duration_ms": 50,
+            "error_message": "",
+            "response_body": "ok",
+        }
+        res = self.client.post(
+            f"/api/v1/projects/{self.project.id}/endpoints/",
+            {
+                "name": "Secret API",
+                "path": "/api/secure",
+                "method": "GET",
+                "bearer_token": "my-custom-token-123",
+                "headers": {"X-Custom-Header": "custom-val"},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201)
+        mock_runner.assert_called_once()
+        _, kwargs = mock_runner.call_args
+        self.assertEqual(kwargs["bearer_token"], "my-custom-token-123")
+        self.assertEqual(kwargs["headers"]["X-Custom-Header"], "custom-val")
+
+    @patch("api.views.run_request")
+    def test_endpoint_auto_attaches_user_jwt_on_same_host(self, mock_runner):
+        mock_runner.return_value = {
+            "success": True,
+            "status_code": 200,
+            "duration_ms": 30,
+            "error_message": "",
+            "response_body": "ok",
+        }
+        # Project pointing to testserver (the default Django test host)
+        same_host_proj = make_project(self.user, "LocalProj", "http://testserver")
+        res = self.client.post(
+            f"/api/v1/projects/{same_host_proj.id}/endpoints/",
+            {
+                "name": "Self Check",
+                "path": "/api/v1/projects/",
+                "method": "GET",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201)
+        mock_runner.assert_called_once()
+        _, kwargs = mock_runner.call_args
+        # Should have auto-attached caller's JWT because destination host is testserver
+        self.assertIsNotNone(kwargs["bearer_token"])
+        self.assertTrue(len(kwargs["bearer_token"]) > 20)
+
+    @patch("api.views.run_request")
+    def test_endpoint_does_not_leak_jwt_to_external_host(self, mock_runner):
+        mock_runner.return_value = {
+            "success": True,
+            "status_code": 200,
+            "duration_ms": 40,
+            "error_message": "",
+            "response_body": "ok",
+        }
+        # External host should NOT get the JWT unless explicitly configured
+        res = self.client.post(
+            f"/api/v1/projects/{self.project.id}/endpoints/",
+            {
+                "name": "External API",
+                "path": "/public-data",
+                "method": "GET",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201)
+        mock_runner.assert_called_once()
+        _, kwargs = mock_runner.call_args
+        self.assertIsNone(kwargs["bearer_token"])
+
+    @patch("api.views.run_request")
+    def test_endpoint_with_auto_keyword_attaches_jwt(self, mock_runner):
+        mock_runner.return_value = {
+            "success": True,
+            "status_code": 200,
+            "duration_ms": 40,
+            "error_message": "",
+            "response_body": "ok",
+        }
+        res = self.client.post(
+            f"/api/v1/projects/{self.project.id}/endpoints/",
+            {
+                "name": "External API with auto auth",
+                "path": "/protected-data",
+                "method": "GET",
+                "bearer_token": "auto",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 201)
+        mock_runner.assert_called_once()
+        _, kwargs = mock_runner.call_args
+        self.assertIsNotNone(kwargs["bearer_token"])
+        self.assertTrue(len(kwargs["bearer_token"]) > 20)
+
+

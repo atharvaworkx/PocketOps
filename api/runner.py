@@ -118,7 +118,10 @@ def run_request(
     # Add bearer token without persisting it
     request_headers = dict(headers)
     if bearer_token:
-        request_headers["Authorization"] = f"Bearer {bearer_token}"
+        token = str(bearer_token).strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        request_headers["Authorization"] = f"Bearer {token}"
 
     try:
         _validate_url(url)

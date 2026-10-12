@@ -62,13 +62,27 @@ class ProjectDetailSerializer(ProjectSerializer):
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 class EndpointSerializer(serializers.ModelSerializer):
+    bearer_token = serializers.CharField(
+        max_length=2000, required=False, allow_blank=True, write_only=True, default=""
+    )
+
+    headers = serializers.JSONField(required=False, default=dict)
+    project = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = Endpoint
         fields = (
             "id", "project", "name", "path", "method",
-            "expected_status", "enabled", "created_at", "updated_at",
+            "expected_status", "enabled", "bearer_token", "headers", "created_at", "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "project", "created_at", "updated_at")
+
+    def validate_headers(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Headers must be a JSON object (key-value pairs).")
+        return value
 
     def validate_path(self, value):
         value = value.strip()
